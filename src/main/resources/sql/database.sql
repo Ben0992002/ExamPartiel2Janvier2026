@@ -16,11 +16,11 @@ values (1, 'Laitue', 'VEGETABLE', 800.0),
 
 
 update dish
-set price = 2000.0
+set selling_price = 2000.0
 where id = 1;
 
 update dish
-set price = 6000.0
+set selling_price = 6000.0
 where id = 2;
 
 
@@ -43,3 +43,17 @@ values (1, 1, 1, 0.2, 'KG'),
        (3, 2, 3, 1.0, 'KG'),
        (4, 4, 4, 0.3, 'KG'),
        (5, 4, 5, 0.2, 'KG');
+-- Partie EXAMEN K3
+DELETE FROM "order" WHERE id IN (1, 2); -- Sécurité pour éviter les erreurs de doublons
+
+INSERT INTO "order" (id, reference, type, status, creation_datetime)
+VALUES
+    (1, 'ORD100', 'TAKE_AWAY', 'DELIVERED', '2024-01-06 12:00'),
+    (2, 'ORD102', 'EAT_IN', 'CREATED', '2024-01-06 12:00');
+
+-- Synchronisation de la séquence pour les prochains tests Java
+SELECT setval(pg_get_serial_sequence('"order"', 'id'), (SELECT MAX(id) FROM "order"));
+
+-- Vérifications
+SELECT * FROM "order";
+SELECT * FROM "order" WHERE type = 'TAKE_AWAY';
