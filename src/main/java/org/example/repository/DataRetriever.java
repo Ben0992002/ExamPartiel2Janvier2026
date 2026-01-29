@@ -1,5 +1,6 @@
 package org.example.repository;
 
+import java.time.Instant;
 import org.example.model.*;
 
 import java.sql.*;
@@ -323,48 +324,49 @@ public class DataRetriever {
             ps.executeQuery();
         }
     }
-}
 
-public Order saveOrder(Order order) throws SQLException {
-    try (Connection conn = new DBConnection().getConnection()) {
-        conn.setAutoCommit(false); // Transaction pour la sécurité
+    public Order saveOrder(Order order) throws SQLException {
+        try (Connection conn = new DBConnection().getConnection()) {
+            conn.setAutoCommit(false); // Transaction pour la sécurité
 
-        // 1. LIEN TD4 : Validation rigoureuse des stocks
-        for (DishOrder item : order.getDishOrders()) {
-            for (DishIngredient di : item.getDish().getDishIngredients()) {
-                // On utilise ton code du TD4 pour calculer le stock actuel
-                StockValue currentStock = di.getIngredient().getStockValueAt(Instant.now());
-                double needed = di.getQuantity() * item.getQuantity();
+            // 1. LIEN TD4 : Validation rigoureuse des stocks
+            for (DishOrder item : order.getDishOrders()) {
+                for (DishIngredient di : item.getDish().getDishIngredients()) {
+                    // On utilise ton code du TD4 pour calculer le stock actuel
+                    StockValue currentStock = di.getIngredient().getStockValueAt(Instant.now());
+                    double needed = di.getQuantity() * item.getQuantity();
 
-                if (currentStock == null || currentStock.getQuantity() < needed) {
-                    conn.rollback();
-                    throw new RuntimeException("Stock insuffisant pour : " + di.getIngredient().getName());
+                    if (currentStock == null || currentStock.getQuantity() < needed) {
+                        conn.rollback();
+                        throw new RuntimeException("Stock insuffisant pour : " + di.getIngredient().getName());
+                    }
                 }
             }
-        }
 
-        // 2. SAUVEGARDE (INSERT ou UPDATE)
-        String sql = (order.getId() == null) ?
-                "INSERT INTO \"order\" (reference, type, status, creation_datetime) VALUES (?, ?::order_type, ?::order_status, ?) RETURNING id" :
-                "UPDATE \"order\" SET type = ?::order_type, status = ?::order_status WHERE id = ?";
+            // 2. SAUVEGARDE (INSERT ou UPDATE)
+            String sql = (order.getId() == null) ?
+                    "INSERT INTO \"order\" (reference, type, status, creation_datetime) VALUES (?, ?::order_type, ?::order_status, ?) RETURNING id" :
+                    "UPDATE \"order\" SET type = ?::order_type, status = ?::order_status WHERE id = ?";
 
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            if (order.getId() == null) {
-                ps.setString(1, order.getReference());
-                ps.setString(2, order.getType().name());
-                ps.setString(3, order.getStatus().name());
-                ps.setTimestamp(4, Timestamp.from(order.getCreationDatetime()));
-                ResultSet rs = ps.executeQuery();
-                if (rs.next()) order.setId(rs.getInt(1));
-            } else {
-                ps.setString(1, order.getType().name());
-                ps.setString(2, order.getStatus().name());
-                ps.setInt(3, order.getId());
-                ps.executeUpdate();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                if (order.getId() == null) {
+                    ps.setString(1, order.getReference());
+                    ps.setString(2, order.getType().name());
+                    ps.setString(3, order.getStatus().name());
+                    ps.setTimestamp(4, Timestamp.from(order.getCreationDatetime()));
+                    ResultSet rs = ps.executeQuery();
+                    if (rs.next()) order.setId(rs.getInt(1));
+                } else {
+                    ps.setString(1, order.getType().name());
+                    ps.setString(2, order.getStatus().name());
+                    ps.setInt(3, order.getId());
+                    ps.executeUpdate();
+                }
             }
-        }
 
-        conn.commit();
-        return order;
+            conn.commit();
+            return order;
+        }
     }
 }
+
