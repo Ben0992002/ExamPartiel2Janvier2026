@@ -1,10 +1,18 @@
 package org.example.repository;
 
+import java.time.Instant;
 import org.example.model.*;
 
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp; // Pour le "Timestamp.from(t)"
+import java.time.Instant;
 
 /**
  * Repository pour gérer les opérations CRUD sur les ingrédients et leurs stocks
@@ -323,48 +331,100 @@ public class DataRetriever {
             ps.executeQuery();
         }
     }
-}
 
-public Order saveOrder(Order order) throws SQLException {
-    try (Connection conn = new DBConnection().getConnection()) {
-        conn.setAutoCommit(false); // Transaction pour la sécurité
+    public Order saveOrder(Order order) throws SQLException {
+        try (Connection conn = new DBConnection().getConnection()) {
+            conn.setAutoCommit(false); // Transaction pour la sécurité
 
-        // 1. LIEN TD4 : Validation rigoureuse des stocks
-        for (DishOrder item : order.getDishOrders()) {
-            for (DishIngredient di : item.getDish().getDishIngredients()) {
-                // On utilise ton code du TD4 pour calculer le stock actuel
-                StockValue currentStock = di.getIngredient().getStockValueAt(Instant.now());
-                double needed = di.getQuantity() * item.getQuantity();
+            // 1. LIEN TD4 : Validation rigoureuse des stocks
+            for (DishOrder item : order.getDishOrders()) {
+                for (DishIngredient di : item.getDish().getDishIngredients()) {
+                    // On utilise ton code du TD4 pour calculer le stock actuel
+                    StockValue currentStock = di.getIngredient().getStockValueAt(Instant.now());
+                    double needed = di.getQuantity() * item.getQuantity();
 
-                if (currentStock == null || currentStock.getQuantity() < needed) {
-                    conn.rollback();
-                    throw new RuntimeException("Stock insuffisant pour : " + di.getIngredient().getName());
+                    if (currentStock == null || currentStock.getQuantity() < needed) {
+                        conn.rollback();
+                        throw new RuntimeException("Stock insuffisant pour : " + di.getIngredient().getName());
+                    }
                 }
             }
-        }
 
-        // 2. SAUVEGARDE (INSERT ou UPDATE)
-        String sql = (order.getId() == null) ?
-                "INSERT INTO \"order\" (reference, type, status, creation_datetime) VALUES (?, ?::order_type, ?::order_status, ?) RETURNING id" :
-                "UPDATE \"order\" SET type = ?::order_type, status = ?::order_status WHERE id = ?";
+            // 2. SAUVEGARDE (INSERT ou UPDATE)
+            String sql = (order.getId() == null) ?
+                    "INSERT INTO \"order\" (reference, type, status, creation_datetime) VALUES (?, ?::order_type, ?::order_status, ?) RETURNING id" :
+                    "UPDATE \"order\" SET type = ?::order_type, status = ?::order_status WHERE id = ?";
 
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            if (order.getId() == null) {
-                ps.setString(1, order.getReference());
-                ps.setString(2, order.getType().name());
-                ps.setString(3, order.getStatus().name());
-                ps.setTimestamp(4, Timestamp.from(order.getCreationDatetime()));
-                ResultSet rs = ps.executeQuery();
-                if (rs.next()) order.setId(rs.getInt(1));
-            } else {
-                ps.setString(1, order.getType().name());
-                ps.setString(2, order.getStatus().name());
-                ps.setInt(3, order.getId());
-                ps.executeUpdate();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                if (order.getId() == null) {
+                    ps.setString(1, order.getReference());
+                    ps.setString(2, order.getType().name());
+                    ps.setString(3, order.getStatus().name());
+                    ps.setTimestamp(4, Timestamp.from(order.getCreationDatetime()));
+                    ResultSet rs = ps.executeQuery();
+                    if (rs.next()) order.setId(rs.getInt(1));
+                } else {
+                    ps.setString(1, order.getType().name());
+                    ps.setString(2, order.getStatus().name());
+                    ps.setInt(3, order.getId());
+                    ps.executeUpdate();
+                }
             }
+
+            conn.commit();
+            return order;
+        }
+    }
+
+        public Connection getConnection() {
+            return new DBConnection().getConnection();
         }
 
-        conn.commit();
-        return order;
+        /**
+         * TD5 : Calcul du stock directement par la base de données (Push-down processing)
+         * On ne charge plus la liste en Java, on demande le résultat à SQL.
+         */
+        public StockValue getStockValueAt(Instant t, Integer ingredientId) {
+            // 1. La requête SQL (Le Push-down)
+            // On transforme les 'OUT' en négatif et on additionne tout
+            String query = """
+            SELECT 
+                unit, 
+                SUM(CASE WHEN type = 'OUT' THEN -quantity ELSE quantity END) as actual_stock
+            FROM stock_movement
+            WHERE id_ingredient = ? AND creation_datetime <= ?
+            GROUP BY unit
+        """;
+
+            // 2. Connexion et préparation (Try-with-resources pour fermer auto la connexion)
+            try (Connection conn = new DBConnection().getConnection();
+                 PreparedStatement ps = conn.prepareStatement(query)) {
+
+                // 3. Remplissage des paramètres (les points d'interrogation ?)
+                ps.setInt(1, ingredientId);
+                ps.setTimestamp(2, java.sql.Timestamp.from(t)); // Conversion Instant -> SQL Timestamp
+
+                // 4. Exécution et lecture du résultat
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        StockValue sv = new StockValue();
+                        sv.setQuantity(rs.getDouble("actual_stock"));
+                        sv.setUnit(Unit.valueOf(rs.getString("unit")));
+                        return sv;
+                    }
+                }
+            } catch (SQLException e) {
+                // Si la base de données n'est pas accessible
+                throw new RuntimeException("Erreur TD5 lors du calcul SQL", e);
+            }
+
+            // Si l'ingrédient n'a aucun mouvement, on retourne null
+            return null;
+        }
+
     }
-}
+
+
+
+
+

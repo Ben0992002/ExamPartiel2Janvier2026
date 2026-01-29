@@ -10,7 +10,7 @@ public class Order {
     private Integer id;
     private String reference; // Format "ORDXXXXX"
     private Instant creationDatetime;
-    private List<DishOrder> dishOrders;
+    private List<DishOrder> dishOrders = new java.util.ArrayList<>();
     private OrderTypeEnum type;
     private OrderStatusEnum status;
 
@@ -36,7 +36,6 @@ public class Order {
     }
 
     public Double getTotalAmountHT() {
-        if (dishOrders == null) return 0.0;
         return dishOrders.stream()
                 .mapToDouble(doItem -> doItem.getDish().getSellingPrice() * doItem.getQuantity())
                 .sum();
